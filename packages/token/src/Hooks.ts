@@ -8,12 +8,12 @@ import {
   SmartContract,
   method,
   AccountUpdate,
-} from 'snarkyjs';
+} from 'o1js';
 
-import type _Hooks from './interfaces/hookHandler/hooks.js';
-import { AdminAction } from './interfaces/token/adminable.js';
-import type { ViewableOptions } from './interfaces/token/viewable.js';
-import { TransferFromToOptions } from './interfaces/token/transferable.js';
+import type _Hooks from './interfaces/hookHandler/hooks';
+import { AdminAction } from './interfaces/token/adminable';
+import type { ViewableOptions } from './interfaces/token/viewable';
+import { TransferFromToOptions } from './interfaces/token/transferable';
 
 class Hooks extends SmartContract implements _Hooks {
   public static defaultViewableOptions: ViewableOptions = {
@@ -22,10 +22,9 @@ class Hooks extends SmartContract implements _Hooks {
 
   @state(PublicKey) public admin = State<PublicKey>();
 
-  @method
-  public initialize(admin: PublicKey) {
-    const provedState = this.account.provedState.get();
-    this.account.provedState.assertEquals(provedState);
+  @method public initialize(admin: PublicKey) {
+    super.init();
+    this.admin.getAndAssertEquals();
     this.admin.set(admin);
   }
 
@@ -46,13 +45,19 @@ class Hooks extends SmartContract implements _Hooks {
     const admin = this.admin.get();
     this.admin.assertEquals(admin);
 
-    // example of disabling `setPaused`
-    const actionPossible = action.type
-      .equals(AdminAction.types.setPaused)
-      .equals(Bool(false));
+    //  If you want to disallow some AdminActions, you can do
+    //  that via an assert statement like this:
+    //const actionPossible = action.type
+    //  .equals(AdminAction.types.setPaused)
+    //  .equals(Bool(false));
+    //actionPossible.assertTrue();
+    //  This would check that the action is not setPaused,
+    //  and thus disallow pausing/unpausing token transfers.
 
-    actionPossible.assertTrue();
+    // If you want to allow any AdminAction, unconditioanlly return true.
+    const actionPossible = Bool(true);
 
+    // Require a signature from the admin
     const adminAccountUpdate = AccountUpdate.create(admin);
     adminAccountUpdate.requireSignature();
 

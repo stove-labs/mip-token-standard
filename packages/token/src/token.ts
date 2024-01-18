@@ -14,36 +14,38 @@ import {
   state,
   State,
   VerificationKey,
-} from 'snarkyjs';
+  Int64,
+  Provable,
+} from 'o1js';
 
-import type Approvable from './interfaces/token/approvable.js';
+import type Approvable from './interfaces/token/approvable';
 // eslint-disable-next-line putout/putout
-import type Transferable from './interfaces/token/transferable.js';
+import type Transferable from './interfaces/token/transferable';
 // eslint-disable-next-line max-len
 // eslint-disable-next-line no-duplicate-imports, @typescript-eslint/consistent-type-imports
 import {
-  FromToTransferReturn,
+  type FromToTransferReturn,
   FromTransferReturn,
   MayUseToken,
   ToTransferReturn,
   TransferFromToOptions,
   TransferOptions,
   TransferReturn,
-} from './interfaces/token/transferable.js';
-import errors from './errors.js';
+} from './interfaces/token/transferable';
+import errors from './errors';
 import {
   AdminAction,
   type Pausable,
   type Burnable,
   type Mintable,
   type Upgradable,
-} from './interfaces/token/adminable.js';
+} from './interfaces/token/adminable';
 // eslint-disable-next-line putout/putout
-import type Viewable from './interfaces/token/viewable.js';
+import type Viewable from './interfaces/token/viewable';
 // eslint-disable-next-line no-duplicate-imports
-import type { ViewableOptions } from './interfaces/token/viewable.js';
-import Hooks from './Hooks.js';
-import type Hookable from './interfaces/token/hookable.js';
+import type { ViewableOptions } from './interfaces/token/viewable';
+import Hooks from './Hooks';
+import type Hookable from './interfaces/token/hookable';
 
 class Token
   extends SmartContract
@@ -80,8 +82,14 @@ class Token
     return new Hooks(admin);
   }
 
+  public assertNotPaused(): void {
+    this.paused.assertEquals(this.paused.get());
+    this.paused.get().assertFalse(errors.tokenPaused);
+  }
+
   @method
   public initialize(hooks: PublicKey, totalSupply: UInt64) {
+    super.init();
     this.account.provedState.assertEquals(Bool(false));
 
     this.hooks.set(hooks);
@@ -96,6 +104,8 @@ class Token
 
   @method
   public mint(to: PublicKey, amount: UInt64): AccountUpdate {
+    this.assertNotPaused();
+
     const hooksContract = this.getHooksContract();
     hooksContract.canAdmin(AdminAction.fromType(AdminAction.types.mint));
 
@@ -130,11 +140,13 @@ class Token
 
   @method
   public burn(from: PublicKey, amount: UInt64): AccountUpdate {
+    this.assertNotPaused();
+
     const hooksContract = this.getHooksContract();
     hooksContract.canAdmin(AdminAction.fromType(AdminAction.types.burn));
 
     // eslint-disable-next-line putout/putout
-    return this.token.mint({ address: from, amount });
+    return this.token.burn({ address: from, amount });
   }
 
   /**
@@ -169,7 +181,29 @@ class Token
 
   // TODO
   public hasNoBalanceChange(accountUpdates: AccountUpdate[]): Bool {
-    return Bool(true);
+    const tokenId = this.token.id;
+
+    const tokenChange = (update: AccountUpdate): Int64 => {
+      return(Provable.if(update.body.tokenId.equals(tokenId),
+        new Int64(update.body.balanceChange.magnitude,update.body.balanceChange.sgn),
+        Int64.from(0)
+      ));
+    }
+
+    let transitiveTokenChange = function(update: AccountUpdate): Int64 {
+        return(update.children.accountUpdates
+          .map(transitiveTokenChange)
+          .reduce((a, b, i) => {
+            return(a.add(b));
+          }, tokenChange(update)))
+    }
+
+    let totalTokenChange =
+      accountUpdates
+      .map(transitiveTokenChange)
+      .reduce((a, b, i) => {return(a.add(b))}, Int64.from(0))
+
+    return(totalTokenChange.equals(Int64.from(0)));
   }
 
   public assertHasNoBalanceChange(accountUpdates: AccountUpdate[]) {
@@ -180,6 +214,8 @@ class Token
 
   @method
   public approveTransfer(from: AccountUpdate, to: AccountUpdate): void {
+    this.assertNotPaused();
+
     this.assertHasNoBalanceChange([from, to]);
     this.approve(from, AccountUpdate.Layout.NoChildren);
     this.approve(to, AccountUpdate.Layout.NoChildren);
@@ -187,6 +223,8 @@ class Token
 
   @method
   public approveDeploy(deploy: AccountUpdate): void {
+    this.assertNotPaused();
+
     this.assertHasNoBalanceChange([deploy]);
     this.approve(deploy, AccountUpdate.Layout.NoChildren);
   }
@@ -201,6 +239,8 @@ class Token
     to,
     amount,
   }: TransferFromToOptions): FromToTransferReturn {
+    this.assertNotPaused();
+
     const [fromAccountUpdate] = this.transferFrom(
       from,
       amount,
@@ -222,6 +262,8 @@ class Token
     amount: UInt64,
     mayUseToken: MayUseToken
   ): FromTransferReturn {
+    this.assertNotPaused();
+
     const fromAccountUpdate = AccountUpdate.create(from, this.token.id);
     fromAccountUpdate.balance.subInPlace(amount);
 
@@ -235,6 +277,8 @@ class Token
     amount: UInt64,
     mayUseToken: MayUseToken
   ): ToTransferReturn {
+    this.assertNotPaused();
+
     const toAccountUpdate = AccountUpdate.create(to, this.token.id);
 
     toAccountUpdate.body.mayUseToken = mayUseToken;
@@ -249,6 +293,8 @@ class Token
     amount,
     mayUseToken,
   }: TransferOptions): TransferReturn {
+    this.assertNotPaused();
+
     if (!from && !to) {
       throw new Error(errors.fromOrToNotProvided);
     }

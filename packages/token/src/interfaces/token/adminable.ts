@@ -7,12 +7,9 @@ import {
   type State,
   Struct,
   Field,
-  isReady,
   Bool,
   VerificationKey,
-} from 'snarkyjs';
-
-await isReady;
+} from 'o1js';
 
 class AdminAction extends Struct({
   type: Field,
